@@ -1,3 +1,7 @@
+"""
+inspired by https://www.kaggle.com/code/ddosad/time-series-arma-arima-sarima-concepts/notebook 
+"""
+
 import sys
 import itertools
 import pandas as pd
