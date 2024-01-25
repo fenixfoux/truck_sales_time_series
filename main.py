@@ -15,6 +15,7 @@ import calendar
 
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
 import ploting_functions as pf
 
@@ -28,6 +29,7 @@ pd.set_option("display.max_rows", None)
 
 DATA_FILEPATH = 'files/Truck_sales.csv'
 SHOW_PLOT = False
+MODEL_RESULTS = pd.DataFrame(columns=["model_name", "model_rmse"])
 
 
 def preparing_data(data_filepath: str) -> pd.DataFrame:
@@ -248,62 +250,273 @@ best_seasonal_pdq = None
 temp_model = None
 
 # ============================ AR Model : Autoregressive ============================
-
+print(f"# ============================ AR Model : Autoregressive ============================")
 # - Use previous time period values to predict the current time period values AR Model building to
 #   estimate best 'p' ( Lowest AIC Approach )
 
 
-# Creating an empty Dataframe with column names only
-AR_AIC = pd.DataFrame(columns=['param', 'AIC'])
+def ar_model():
+    # Creating an empty Dataframe with column names only
+    AR_AIC = pd.DataFrame(columns=['param', 'AIC'])
 
-for param in pdq_ar:
-    ARIMA_model = ARIMA(train_sales_ts_log, order=param).fit()
-    print('ARIMA{} - AIC:{}'.format(param, ARIMA_model.aic))
-    row = {'param': param, 'AIC': ARIMA_model.aic}
-    AR_AIC = pd.concat([AR_AIC, pd.DataFrame([row])], ignore_index=True)
+    for param in pdq_ar:
+        ARIMA_model = ARIMA(train_sales_ts_log, order=param).fit()
+        print('ARIMA{} - AIC:{}'.format(param, ARIMA_model.aic))
+        row = {'param': param, 'AIC': ARIMA_model.aic}
+        AR_AIC = pd.concat([AR_AIC, pd.DataFrame([row])], ignore_index=True)
 
-# Building AR model with best 'p' parameter
-best_model = ARIMA(train_sales_ts_log, order=(2, 0, 0))  # p=2 with lowest AIC
-best_results = best_model.fit()
-print(best_results.summary().tables[0])
-print(best_results.summary().tables[1])
+    # Building AR model with best 'p' parameter
+    best_model = ARIMA(train_sales_ts_log, order=(2, 0, 0))  # p=2 with lowest AIC
+    best_results = best_model.fit()
+    print(best_results.summary().tables[0])
+    print(best_results.summary().tables[1])
 
 
-# Calculating RMSE for best AR model
-pred_dynamic = best_results.get_prediction(start=pd.to_datetime('2012-01-01'), dynamic=True, full_results=True)
-pred99 = best_results.get_forecast(steps=len(test), alpha=0.1) # forecasting values
+    # Calculating RMSE for best AR model
+    pred_dynamic = best_results.get_prediction(start=pd.to_datetime('2012-01-01'), dynamic=True, full_results=True)
+    pred99 = best_results.get_forecast(steps=len(test), alpha=0.1) # forecasting values
 
-# Extract the predicted and true values of our time series
-sales_ts_forecasted = pred_dynamic.predicted_mean
-testCopy1 = test.copy()
-testCopy1['sales_ts_forecasted'] = np.power(10, pred99.predicted_mean)
+    # Extract the predicted and true values of our time series
+    sales_ts_forecasted = pred_dynamic.predicted_mean
+    testCopy1 = test.copy()
+    testCopy1['sales_ts_forecasted'] = np.power(10, pred99.predicted_mean)
 
-# Compute the root-mean-square error
-mse = ((testCopy1['Truck-Sales'] - testCopy1['sales_ts_forecasted']) ** 2).mean()
-rmse = np.sqrt(mse)
-print('The Root Mean Squared Error of our forecasts is {}'.format(round(rmse, 3)))
+    # Compute the root-mean-square error
+    mse = ((testCopy1['Truck-Sales'] - testCopy1['sales_ts_forecasted']) ** 2).mean()
+    rmse = np.sqrt(mse)
+    print('The Root Mean Squared Error of our forecasts is {}'.format(round(rmse, 3)))
 
-axis = train['Truck-Sales'].plot(label='Train Sales', figsize=(15, 5))
-testCopy1['Truck-Sales'].plot(ax=axis, label='Test Sales', alpha=0.7)
-testCopy1['sales_ts_forecasted'].plot(ax=axis, label='Forecasted Sales', alpha=0.7)
-axis.set_xlabel('Years')
-axis.set_ylabel('Truck Sales')
-plt.legend(loc='best')
-plt.show()
-plt.close()
+    axis = train['Truck-Sales'].plot(label='Train Sales', figsize=(15, 5))
+    testCopy1['Truck-Sales'].plot(ax=axis, label='Test Sales', alpha=0.7)
+    testCopy1['sales_ts_forecasted'].plot(ax=axis, label='Forecasted Sales', alpha=0.7)
+    axis.set_xlabel('Years')
+    axis.set_ylabel('Truck Sales')
+    plt.legend(loc='best')
+    plt.show()
+    plt.close()
 
-resultsDf = pd.DataFrame({'RMSE': rmse}
-                           ,index=['Best AR Model : ARIMA(2,0,0)'])
+    resultsDf = pd.DataFrame({'RMSE': rmse}
+                               ,index=['Best AR Model : ARIMA(2,0,0)'])
 
-print(f"result of R model: {resultsDf}")
+    print(f"result of R model: {resultsDf}")
+    MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["AR Model", rmse]
 
+
+# ar_model()
+#
+# print(f"Model Results:\n{MODEL_RESULTS}")
 # ============================ ARMA Model ============================
+print(f"# ============================ SECTION ARMA Model ============================")
+"""
+    - Improving AutoRegressive Models through Moving Average Forecasts.
+    - ARMA models consist of 2 components:-
+    - AR model: The data is modeled based on past observations.
+    - MA model: Previous forecast errors are incorporated into the model.
+"""
 
 
+def arma_model():
+    # ARMA Model building to estimate best 'p' , 'q' ( Lowest AIC Approach )
+    # Creating an empty Dataframe with column names only
+    ARMA_AIC = pd.DataFrame(columns=['param', 'AIC'])
+
+    for param in pdq_arma:
+        ARIMA_model = ARIMA(train_sales_ts_log, order=param).fit()
+        print('ARIMA{} - AIC:{}'.format(param, ARIMA_model.aic))
+        row = {'param': param, 'AIC': ARIMA_model.aic}
+        ARMA_AIC = pd.concat([ARMA_AIC, pd.DataFrame([row])], ignore_index=True)
+
+    # Sort the above AIC values in the ascending order to get the parameters for the minimum AIC value
+    print(ARMA_AIC.sort_values(by='AIC', ascending=True).head())
+
+    # Building ARMA model with best p,q parameter
+    print(f"Building ARMA model with best p,q parameter\n")
+    best_model = ARIMA(train_sales_ts_log, order=(3, 0, 3))
+    best_results = best_model.fit()
+    print(best_results.summary().tables[0])
+    print(best_results.summary().tables[1])
+
+    # Calculating RMSE for best MA model
+    pred_dynamic = best_results.get_prediction(start=pd.to_datetime('2012-01-01'), dynamic=True, full_results=True)
+
+    # forecasting values
+    pred99 = best_results.get_forecast(steps=len(test), alpha=0.1)
+
+    # Extract the predicted and true values of our time series
+    sales_ts_forecasted = pred_dynamic.predicted_mean
+    testCopy1 = test.copy()
+    testCopy1['sales_ts_forecasted'] = np.power(10, pred99.predicted_mean)
+    print(f"sales_ts_forecasted\n{sales_ts_forecasted}")
+
+    # Compute the root mean square error
+    mse = ((testCopy1['Truck-Sales'] - testCopy1['sales_ts_forecasted']) ** 2).mean()
+    rmse = np.sqrt(mse)
+    print('The Root Mean Squared Error of our forecasts is {}'.format(round(rmse, 3)))
+    # The Root Mean Squared Error of our forecasts is 235.266
+
+    axis = train['Truck-Sales'].plot(label='Train Sales', figsize=(15, 5))
+    testCopy1['Truck-Sales'].plot(ax=axis, label='Test Sales', alpha=0.7)
+    testCopy1['sales_ts_forecasted'].plot(ax=axis, label='Forecasted Sales', alpha=0.7)
+    axis.set_xlabel('Years')
+    axis.set_ylabel('Truck Sales')
+    plt.legend(loc='best')
+    plt.show()
+    plt.close()
+
+    resultsDf1 = pd.DataFrame({'RMSE': rmse}
+                              , index=['Best ARMA Model : ARIMA(3,0,3)'])
+
+    print(resultsDf1)
+
+    # pd.concat([resultsDf, resultsDf1])
+    MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["ARMA Model", rmse]
 
 
+print(f"# ============================ SECTION ARIMA Model ============================")
+"""
+    - ARIMA:- Auto Regressive Integrated Moving Average is a way of modeling time series data for forecasting or predicting future data points.
+    - Improving AR Models by making Time Series stationary through Moving AVerage Forecasts
+    - ARIMA models consist of 3 components:-
+    - AR model: The data is modeled based on past observations.
+    - Integrated component: Whether the data needs to be differenced/transformed.
+    - MA model: Previous forecast errors are incorporated into the model.
+"""
 
 
+def arima_model():
+    # ARIMA Model building to estimate best 'p' , 'd' , 'q' paramters ( Lowest AIC Approach )
+    # Creating an empty Dataframe with column names only
+    ARIMA_AIC = pd.DataFrame(columns=['param', 'AIC'])
+
+    for param in pdq:
+        ARIMA_model = ARIMA(train_sales_ts_log, order=param).fit()
+        print('ARIMA{} - AIC:{}'.format(param, ARIMA_model.aic))
+        row = {'param': param, 'AIC': ARIMA_model.aic}
+        ARIMA_AIC = pd.concat([ARIMA_AIC, pd.DataFrame([row])], ignore_index=True)
+
+    # Sort the above AIC values in the ascending order to get the parameters for the minimum AIC value
+    print(f"Sort the above AIC values in the ascending order to get the parameters for the minimum AIC value:\n"
+          f"{ARIMA_AIC.sort_values(by='AIC', ascending=True).head(5)}")
+
+    # Building ARIMA model with the best parameters p,d,q
+    # better parameters are (3, 1, 3) because in that case model's RMSE = 209,
+    # instead (3, 0, 3) where AIC is lower but there RMSE = 235
+    best_model = ARIMA(train_sales_ts_log, order=(3, 1, 3))
+    best_results = best_model.fit()
+    print(best_results.summary().tables[0])
+    print(best_results.summary().tables[1])
+
+    # Calculating RMSE for best ARIMA model
+    pred_dynamic = best_results.get_prediction(start=pd.to_datetime('2012-01-01'), dynamic=True, full_results=True)
+    # forecasting values
+    pred99 = best_results.get_forecast(steps=len(test), alpha=0.1)
+
+    # Extract the predicted and true values of our time series
+    sales_ts_forecasted = pred_dynamic.predicted_mean
+    testCopy1 = test.copy()
+    testCopy1['sales_ts_forecasted'] = np.power(10, pred99.predicted_mean)
+
+    # Compute the root mean square error
+    mse = ((testCopy1['Truck-Sales'] - testCopy1['sales_ts_forecasted']) ** 2).mean()
+    rmse = np.sqrt(mse)
+
+    axis = train['Truck-Sales'].plot(label='Train Sales', figsize=(15, 5))
+    testCopy1['Truck-Sales'].plot(ax=axis, label='Test Sales', alpha=0.7)
+    testCopy1['sales_ts_forecasted'].plot(ax=axis, label='Forecasted Sales', alpha=0.7)
+    axis.set_xlabel('Years')
+    axis.set_ylabel('Truck Sales')
+    plt.legend(loc='best')
+    plt.show()
+    # plt.close()
+
+    resultsDf2 = pd.DataFrame({'RMSE': rmse}
+                              , index=['Best ARIMA Model : ARIMA(3,0,3)'])
+    MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["ARIMA Model", rmse]
+    # MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["AR Model", rmse]
+    print(resultsDf2)
+
+
+print(f"# ============================ SECTION SARIMA Model ============================")
+"""
+    - The ARIMA models can be extended/improved to handle seasonal components of a data series
+    - The seasonal autoregressive moving average model is given by SARIMA(p,d,q)(P,D,Q)m 
+        where:
+            - "(p,d,q)" are non seasonal 
+            - "(P,D,Q)m" are seasonal
+    
+    - The above model consists of:
+    - Autoregressive and moving average components (p, q)
+    - Seasonal autoregressive and moving average components (P, Q)
+    - The ordinary and seasonal difference components of order ‘d’ and ‘D’
+    - Seasonal frequency ‘F’
+    - The value for the parameters (p,d,q) and (P, D, Q) can be decided by comparing different values for each and taking the lowest AIC value for the model build.
+    - The value for F can be consolidated by ACF plot
+"""
+def sarima_model():
+    # Finding Seasonality = 12 from ACF/PACF plots
+    # print(f"Finding Seasonality = 12 from ACF/PACF plots ")
+    # plt.figure(figsize=(15, 4))
+    # plot_acf(train['Truck-Sales'], alpha=0.05)
+    # plt.show()
+
+    # SARIMA Model building to estimate best parameters
+    best_aic = np.inf
+    best_pdq = None
+    best_seasonal_pdq = None
+    temp_model = None
+    SARIMA_AIC = pd.DataFrame(columns=['param', 'seasonal', 'AIC'])
+
+    # IMPORTANT!!! the loop below takes much time because there are calculated AIC for each iteration of seasonal pdq
+    # and pdq, set CALCULATED_AIC as true if you already have calculated and saved all AIC in the file
+    CALCULATED_AIC = True
+    if CALCULATED_AIC:
+        data_filepath = 'SARIMA_AIC_for_all_pdq_and_seasonal_pdq.csv'
+        data_aic = pd.read_csv(data_filepath)
+        five_lowest_AICS = data_aic.sort_values(by='AIC', ascending=True, ignore_index=True).head()
+        print(f"=" * 99, "\n",
+              f"top 5 combinations with lowest AIC\n"
+              f"{five_lowest_AICS}\n"
+              f"=" * 99, "\n",
+              f"lowest AIC is for parameters: {five_lowest_AICS.iloc[0]}"
+              )
+    else:
+        for param in pdq:
+            for param_seasonal in seasonal_pdq:
+                # print(f"{param} : {param_seasonal}")
+                SARIMA_model = sm.tsa.statespace.SARIMAX(train_sales_ts_log,
+                                                         order=param,
+                                                         seasonal_order=param_seasonal,
+                                                         enforce_stationarity=False,
+                                                         enforce_invertibility=False)
+
+                results_SARIMA = SARIMA_model.fit(maxiter=1000, disp=False)
+                # print('SARIMA{}x{} - AIC:{}'.format(param, param_seasonal, results_SARIMA.aic))
+                SARIMA_AIC.loc[len(SARIMA_AIC)] = [param, param_seasonal, results_SARIMA.aic]
+                print(f"for {param} : {param_seasonal} - done")
+        print(SARIMA_AIC)
+        print(f"\n# SARIMA Model building to estimate best parameters\n{SARIMA_AIC.sort_values(by=['AIC'],ascending=True).head()}")
+        SARIMA_AIC.to_csv("SARIMA_AIC_for_all_pdq_and_seasonal_pdq.csv")
+    """
+        Inference * Criteria to choose the best fit model is the lowest/minimum AIC value
+            For ARIMA(p, d, q) × (P, D, Q)S,
+            we got SARIMAX(1, 0, 1)x(1, 0, 1, 12)model with the least AIC of -559.278050
+            Here,
+            - p = non-seasonal AR order = 1,
+            - d = non-seasonal differencing = 0,
+            - q = non-seasonal MA order = 1,
+            - P = seasonal AR order = 1,
+            - D = seasonal differencing = 0,
+            - Q = seasonal MA order = 1,
+            - S = time span of repeating seasonal pattern = 12
+            Building SARIMA model with the best parameters
+    """
+
+
+# ar_model()
+# arma_model()
+# arima_model()
+sarima_model()
+print(f"\nlist of all models results\n{MODEL_RESULTS.sort_values(by='model_rmse', ascending=True).head(20)}")
 
 
 
