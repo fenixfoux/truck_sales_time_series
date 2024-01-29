@@ -251,6 +251,8 @@ temp_model = None
 
 # ============================ AR Model : Autoregressive ============================
 print(f"# ============================ AR Model : Autoregressive ============================")
+
+
 # - Use previous time period values to predict the current time period values AR Model building to
 #   estimate best 'p' ( Lowest AIC Approach )
 
@@ -271,10 +273,9 @@ def ar_model():
     print(best_results.summary().tables[0])
     print(best_results.summary().tables[1])
 
-
     # Calculating RMSE for best AR model
     pred_dynamic = best_results.get_prediction(start=pd.to_datetime('2012-01-01'), dynamic=True, full_results=True)
-    pred99 = best_results.get_forecast(steps=len(test), alpha=0.1) # forecasting values
+    pred99 = best_results.get_forecast(steps=len(test), alpha=0.1)  # forecasting values
 
     # Extract the predicted and true values of our time series
     sales_ts_forecasted = pred_dynamic.predicted_mean
@@ -296,7 +297,7 @@ def ar_model():
     plt.close()
 
     resultsDf = pd.DataFrame({'RMSE': rmse}
-                               ,index=['Best AR Model : ARIMA(2,0,0)'])
+                             , index=['Best AR Model : ARIMA(2,0,0)'])
 
     print(f"result of R model: {resultsDf}")
     MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["AR Model", rmse]
@@ -372,6 +373,7 @@ def arma_model():
     MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["ARMA Model", rmse]
 
 
+# ============================ ARIMA Model ============================
 print(f"# ============================ SECTION ARIMA Model ============================")
 """
     - ARIMA:- Auto Regressive Integrated Moving Average is a way of modeling time series data for forecasting or predicting future data points.
@@ -416,7 +418,7 @@ def arima_model():
     testCopy1 = test.copy()
     testCopy1['sales_ts_forecasted'] = np.power(10, pred99.predicted_mean)
 
-    # Compute the root mean square error
+    # Compute the root-mean-square error
     mse = ((testCopy1['Truck-Sales'] - testCopy1['sales_ts_forecasted']) ** 2).mean()
     rmse = np.sqrt(mse)
 
@@ -436,6 +438,7 @@ def arima_model():
     print(resultsDf2)
 
 
+# ============================ SARIMA Model ============================
 print(f"# ============================ SECTION SARIMA Model ============================")
 """
     - The ARIMA models can be extended/improved to handle seasonal components of a data series
@@ -452,6 +455,8 @@ print(f"# ============================ SECTION SARIMA Model ====================
     - The value for the parameters (p,d,q) and (P, D, Q) can be decided by comparing different values for each and taking the lowest AIC value for the model build.
     - The value for F can be consolidated by ACF plot
 """
+
+
 def sarima_model():
     # Finding Seasonality = 12 from ACF/PACF plots
     # print(f"Finding Seasonality = 12 from ACF/PACF plots ")
@@ -494,7 +499,8 @@ def sarima_model():
                 SARIMA_AIC.loc[len(SARIMA_AIC)] = [param, param_seasonal, results_SARIMA.aic]
                 print(f"for {param} : {param_seasonal} - done")
         print(SARIMA_AIC)
-        print(f"\n# SARIMA Model building to estimate best parameters\n{SARIMA_AIC.sort_values(by=['AIC'],ascending=True).head()}")
+        print(
+            f"\n# SARIMA Model building to estimate best parameters\n{SARIMA_AIC.sort_values(by=['AIC'], ascending=True).head()}")
         SARIMA_AIC.to_csv("SARIMA_AIC_for_all_pdq_and_seasonal_pdq.csv")
     """
         Inference * Criteria to choose the best fit model is the lowest/minimum AIC value
@@ -511,35 +517,108 @@ def sarima_model():
             Building SARIMA model with the best parameters
     """
 
+    best_model = sm.tsa.statespace.SARIMAX(train_sales_ts_log,
+                                           order=(1, 0, 1),
+                                           seasonal_order=(1, 0, 1, 12),
+                                           enforce_stationarity=True)
+    best_results = best_model.fit()
+    print(best_results.summary().tables[0])
+    print(best_results.summary().tables[1])
+
+    pred_dynamic = best_results.get_prediction(start=pd.to_datetime('2012-01-01'), dynamic=True, full_results=True)
+    pred99 = best_results.get_forecast(steps=len(test), alpha=0.1)
+
+    # Extract the predicted and true values of our time series
+    sales_ts_forecasted = pred_dynamic.predicted_mean
+    testCopy = test.copy()
+    testCopy['sales_ts_forecasted'] = np.power(10, pred99.predicted_mean)
+    print(testCopy)
+
+    # Compute the root-mean-square error
+    mse = ((testCopy['Truck-Sales'] - testCopy['sales_ts_forecasted']) ** 2).mean()
+    rmse = np.sqrt(mse)
+    print('The Root Mean Squared Error of our forecasts is {}'.format(round(rmse, 3)))
+
+    axis = train['Truck-Sales'].plot(label='Train Sales', figsize=(15, 5))
+    testCopy['Truck-Sales'].plot(ax=axis, label='Test Sales', alpha=0.7)
+    testCopy['sales_ts_forecasted'].plot(ax=axis, label='Forecasted Sales', alpha=0.7)
+    axis.set_xlabel('Years')
+    axis.set_ylabel('Truck Sales')
+    plt.legend(loc='best')
+    plt.show()
+    plt.close()
+
+    resultsDf3 = pd.DataFrame({'RMSE': rmse}
+                              , index=['Best SARIMA Model : SARIMAX(1, 0, 1)x(1, 0, 1, 12)'])
+    MODEL_RESULTS.loc[len(MODEL_RESULTS)] = ["SARIMA Model", rmse]
+    print(resultsDf3)
+
+    return best_results
+
+
+# ======================== Forecast sales using the best fit SARIMA model as per RMSE ========================
+print("Forecast sales using the best fit SARIMA model as per RMSE")
+
+
+def forecast_sales_for_3year():
+    best_results = sarima_model()
+    # Get forecast 36 steps (3 years) ahead in future
+    n_steps = 60
+    pred_uc_99 = best_results.get_forecast(steps=60, alpha=0.01)  # alpha=0.01 signifies 99% confidence interval
+    pred_uc_95 = best_results.get_forecast(steps=60, alpha=0.05)  # alpha=0.05 95% CI
+
+    # Get confidence intervals 95% & 99% of the forecasts
+    pred_ci_99 = pred_uc_99.conf_int()
+    pred_ci_95 = pred_uc_95.conf_int()
+    n_steps = 60
+    idx = pd.date_range(start='2015-01-01', end='2019-12-31', freq='MS')
+    fc_95 = pd.DataFrame(np.column_stack([np.power(10, pred_uc_95.predicted_mean), np.power(10, pred_ci_95)]),
+                         index=idx, columns=['forecast', 'lower_ci_95', 'upper_ci_95'])
+    fc_99 = pd.DataFrame(np.column_stack([np.power(10, pred_ci_99)]),
+                         index=idx, columns=['lower_ci_99', 'upper_ci_99'])
+    fc_all = fc_95.combine_first(fc_99)
+    fc_all = fc_all[['forecast', 'lower_ci_95', 'upper_ci_95', 'lower_ci_99', 'upper_ci_99']]  # just reordering columns
+    fc_all.head()
+
+    # plot the forecast along with the confidence band
+    sales_ts = data['Truck-Sales']
+    axis = sales_ts.plot(label='Observed', figsize=(15, 5))
+    fc_all['forecast'].plot(ax=axis, label='Forecast', alpha=0.7)
+    axis.fill_between(fc_all.index, fc_all['lower_ci_95'], fc_all['upper_ci_95'], color='k', alpha=.15)
+    axis.set_xlabel('Years')
+    axis.set_ylabel('Truck Sales')
+    plt.legend(loc='best')
+    plt.show()
+    # Plot ACF and PACF for residuals of ARIMA model to ensure no more information is left for extraction
+    best_results.plot_diagnostics(lags=30, figsize=(16, 12))
+    plt.show()
+
+
+"""
+Inference
+    Note : 4 plots in the residuals diagnostic plots tell us :
+        - Standardized residuals plot The top left plot shows 1-step-ahead standardized residuals.
+            If model is working correctly, then no pattern should be obvious in the residuals which is clearly 
+            not visible from the plot as well .
+        
+        - Histogram plus estimated density plot This plot shows the distribution of the residuals.The orange line 
+            shows a smoothed version of this histogram, and the green line shows a normal distribution. If the model is 
+            good these two lines should be the same. Here there are small differences between them, which indicate that 
+            our model is doing just well enough.
+        
+        - Normal Q-Q plot The Q-Q plot compare the distribution of residuals to normal distribution. If the distribution
+            of the residuals is normal, then all the points should lie along the red line, except for some values at the 
+            end, which is exactly happening in this case.
+        
+        - Correlogram plot The correlogram plot is the ACF plot of the residuals rather than the data. 95% of the 
+            correlations for lag >0 should not be significant (within the blue shades). If there is a significant 
+            correlation in the residuals, it means that there is information in the data that was not captured by 
+            the model, which is clearly not in this case.
+"""
 
 # ar_model()
 # arma_model()
 # arima_model()
-sarima_model()
+# sarima_model()
+forecast_sales_for_3year()
 print(f"\nlist of all models results\n{MODEL_RESULTS.sort_values(by='model_rmse', ascending=True).head(20)}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
